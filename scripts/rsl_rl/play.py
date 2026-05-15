@@ -56,7 +56,11 @@ import isaaclab_tasks  # noqa: F401
 from isaaclab.envs import DirectMARLEnv, multi_agent_to_single_agent
 from isaaclab.utils.assets import retrieve_file_path
 from isaaclab.utils.dict import print_dict
-from isaaclab.utils.pretrained_checkpoint import get_published_pretrained_checkpoint
+try:
+    from isaaclab.utils.pretrained_checkpoint import get_published_pretrained_checkpoint
+except ModuleNotFoundError:
+    def get_published_pretrained_checkpoint(*_):
+        return None
 from isaaclab_rl.rsl_rl import RslRlOnPolicyRunnerCfg, RslRlVecEnvWrapper, export_policy_as_jit, export_policy_as_onnx
 from isaaclab_tasks.utils import get_checkpoint_path
 
@@ -117,7 +121,15 @@ def main():
     print(f"[INFO]: Loading model checkpoint from: {resume_path}")
     # load previously trained model
     if not hasattr(agent_cfg, "class_name") or agent_cfg.class_name == "OnPolicyRunner":
-        runner = OnPolicyRunner(env, agent_cfg.to_dict(), log_dir=None, device=agent_cfg.device)
+        _deprecated_model_fields = {"stochastic", "init_noise_std", "noise_std_type", "state_dependent_std",
+                                    "actor_obs_normalization", "critic_obs_normalization",
+                                    "actor_hidden_dims", "critic_hidden_dims"}
+        _agent_dict = agent_cfg.to_dict()
+        for _key in ("actor", "critic", "policy"):
+            if _key in _agent_dict and isinstance(_agent_dict[_key], dict):
+                for _field in _deprecated_model_fields:
+                    _agent_dict[_key].pop(_field, None)
+        runner = OnPolicyRunner(env, _agent_dict, log_dir=None, device=agent_cfg.device)
     elif agent_cfg.class_name == "DistillationRunner":
         from rsl_rl.runners import DistillationRunner
 
@@ -130,11 +142,13 @@ def main():
     policy = runner.get_inference_policy(device=env.unwrapped.device)
 
     # extract the neural network module
-    # we do this in a try-except to maintain backwards compatibility.
-    try:
-        # version 2.3 onwards
+    if hasattr(runner.alg, "get_policy"):
+        # rsl_rl >= 5.0
+        policy_nn = runner.alg.get_policy()
+    elif hasattr(runner.alg, "policy"):
+        # version 2.3
         policy_nn = runner.alg.policy
-    except AttributeError:
+    else:
         # version 2.2 and below
         policy_nn = runner.alg.actor_critic
 
@@ -148,8 +162,11 @@ def main():
 
     # export policy to onnx/jit
     export_model_dir = os.path.join(os.path.dirname(resume_path), "exported")
-    export_policy_as_jit(policy_nn, normalizer=normalizer, path=export_model_dir, filename="policy.pt")
-    export_policy_as_onnx(policy_nn, normalizer=normalizer, path=export_model_dir, filename="policy.onnx")
+    try:
+        export_policy_as_jit(policy_nn, normalizer=normalizer, path=export_model_dir, filename="policy.pt")
+        export_policy_as_onnx(policy_nn, normalizer=normalizer, path=export_model_dir, filename="policy.onnx")
+    except Exception as e:
+        print(f"[WARNING]: Policy export skipped (incompatible with new rsl_rl API): {e}")
 
     dt = env.unwrapped.step_dt
 
