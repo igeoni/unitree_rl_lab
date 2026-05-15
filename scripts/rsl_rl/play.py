@@ -15,6 +15,7 @@ from isaaclab.app import AppLauncher
 # local imports
 import cli_args  # isort: skip
 
+
 # add argparse arguments
 parser = argparse.ArgumentParser(description="Train an RL agent with RSL-RL.")
 parser.add_argument("--video", action="store_true", default=False, help="Record videos during training.")
@@ -98,6 +99,22 @@ def main():
 
     # create isaac environment
     env = gym.make(args_cli.task, cfg=env_cfg, render_mode="rgb_array" if args_cli.video else None)
+
+    # foot contact publisher (requires ROS2/rclpy)
+    try:
+        from contact_publisher import ContactPublisher
+        contact_pub = ContactPublisher(env)
+    except Exception as e:
+        print(f"[WARNING]: ContactPublisher unavailable (ROS2 not loaded): {e}")
+        contact_pub = None
+
+    # joint state publisher (requires ROS2/rclpy)
+    try:
+        from joint_state_publisher import JointStatePublisher
+        joint_pub = JointStatePublisher(env)
+    except Exception as e:
+        print(f"[WARNING]: JointStatePublisher unavailable (ROS2 not loaded): {e}")
+        joint_pub = None
 
     # convert to single-agent instance if required by the RL algorithm
     if isinstance(env.unwrapped, DirectMARLEnv):
@@ -184,6 +201,12 @@ def main():
             actions = policy(obs)
             # env stepping
             obs, _, _, _ = env.step(actions)
+
+        if contact_pub is not None:
+            contact_pub.update()
+        if joint_pub is not None:
+            joint_pub.update()
+
         if args_cli.video:
             timestep += 1
             # Exit the play loop after recording one video
@@ -196,6 +219,10 @@ def main():
             time.sleep(sleep_time)
 
     # close the simulator
+    if contact_pub is not None:
+        contact_pub.close()
+    if joint_pub is not None:
+        joint_pub.close()
     env.close()
 
 

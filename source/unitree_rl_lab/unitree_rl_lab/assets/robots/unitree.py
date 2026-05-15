@@ -20,7 +20,7 @@ from unitree_rl_lab.assets.robots import unitree_actuators
 UNITREE_MODEL_DIR = "path/to/unitree_model"  # Replace with the actual path to your unitree_model directory
 UNITREE_ROS_DIR = "/home/igeoni/dev/unitree_rl_lab/asset"  # Replace with the actual path to your unitree_ros package
 
-UNITREE_ASSET_DIR = "/home/igeoni/dev/unitree_rl_lab/asset/configuration"
+UNITREE_ASSET_DIR = "/home/igeoni/dev/unitree_rl_lab/asset"
 
 
 @configclass
@@ -397,12 +397,12 @@ UNITREE_G1_23DOF_CFG = UnitreeArticulationCfg(
 )
 
 UNITREE_G1_29DOF_CFG = UnitreeArticulationCfg(
-    spawn=UnitreeUrdfFileCfg(
-        asset_path=f"{UNITREE_ROS_DIR}/g1_29dof_rev_1_0.urdf",
-    ),
-    # spawn=UnitreeUsdFileCfg(
-    #     usd_path=f"{UNITREE_ASSET_DIR}/g1_29dof_rev_1_0_sensor.usd",
+    # spawn=UnitreeUrdfFileCfg(
+    #     asset_path=f"{UNITREE_ROS_DIR}/g1_29dof_rev_1_0.urdf",
     # ),
+    spawn=UnitreeUsdFileCfg(
+        usd_path=f"{UNITREE_ASSET_DIR}/g1_29dof_rev_1_0.usd",
+    ),
     init_state=ArticulationCfg.InitialStateCfg(
         pos=(0.0, 0.0, 0.8),
         joint_pos={
@@ -531,12 +531,12 @@ DAMPING_7520_22 = 2.0 * DAMPING_RATIO * ARMATURE_7520_22 * NATURAL_FREQ  # 6.308
 DAMPING_4010 = 2.0 * DAMPING_RATIO * ARMATURE_4010 * NATURAL_FREQ  # 1.06814150219
 
 UNITREE_G1_29DOF_MIMIC_CFG = UnitreeArticulationCfg(
-    spawn=UnitreeUrdfFileCfg(
-        asset_path=f"{UNITREE_ROS_DIR}/g1_29dof_rev_1_0.urdf",
-    ),
-    # spawn=UnitreeUsdFileCfg(
-    #     usd_path=f"{UNITREE_ASSET_DIR}/g1_29dof_rev_1_0_sensor.usd",
+    # spawn=UnitreeUrdfFileCfg(
+    #     asset_path=f"{UNITREE_ROS_DIR}/g1_29dof_rev_1_0.urdf",
     # ),
+    spawn=UnitreeUsdFileCfg(
+        usd_path=f"{UNITREE_ASSET_DIR}/g1_29dof_rev_1_0.usd",
+    ),
     init_state=ArticulationCfg.InitialStateCfg(
         pos=(0.0, 0.0, 0.76),
         joint_pos={
