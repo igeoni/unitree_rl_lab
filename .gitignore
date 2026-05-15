@@ -1,3 +1,6 @@
+# Local assets (large binary files)
+asset/
+
 # C++
 **/cmake-build*/
 **/build*/
