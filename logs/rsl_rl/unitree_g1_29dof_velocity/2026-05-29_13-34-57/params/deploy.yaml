@@ -12,9 +12,9 @@ default_joint_pos: [-0.1, -0.1, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.3, 0.3, 0.3
 commands:
   base_velocity:
     ranges:
-      lin_vel_x: [-0.5, 1.0]
+      lin_vel_x: [0.0, 1.0]
       lin_vel_y: [-0.3, 0.3]
-      ang_vel_z: [-1.0, 1.0]
+      ang_vel_z: [-1.5, 1.5]
       heading: null
 actions:
   JointPositionAction:
@@ -30,35 +30,35 @@ actions:
 observations:
   base_ang_vel:
     params: {}
-    clip: null
+    clip: [-10.0, 10.0]
     scale: [0.2, 0.2, 0.2]
     history_length: 5
   projected_gravity:
     params: {}
-    clip: null
+    clip: [-10.0, 10.0]
     scale: [1.0, 1.0, 1.0]
     history_length: 5
   velocity_commands:
     params: {command_name: base_velocity}
-    clip: null
+    clip: [-10.0, 10.0]
     scale: [1.0, 1.0, 1.0]
     history_length: 5
   joint_pos_rel:
     params: {}
-    clip: null
+    clip: [-10.0, 10.0]
     scale: [1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0,
       1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0]
     history_length: 5
   joint_vel_rel:
     params: {}
-    clip: null
+    clip: [-10.0, 10.0]
     scale: [0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05,
       0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05,
       0.05, 0.05, 0.05, 0.05]
     history_length: 5
   last_action:
     params: {}
-    clip: null
+    clip: [-10.0, 10.0]
     scale: [1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0,
       1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0]
     history_length: 5

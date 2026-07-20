@@ -406,9 +406,3 @@ class RobotPlayEnvCfg(RobotEnvCfg):
         self.scene.terrain.terrain_generator.num_rows = 2
         self.scene.terrain.terrain_generator.num_cols = 10
         self.commands.base_velocity.ranges = self.commands.base_velocity.limit_ranges
-        # disable push and terminations for stable play
-        self.events.push_robot = None
-        self.events.base_external_force_torque = None
-        self.terminations.time_out = None
-        self.terminations.base_height = None
-        self.terminations.bad_orientation = None

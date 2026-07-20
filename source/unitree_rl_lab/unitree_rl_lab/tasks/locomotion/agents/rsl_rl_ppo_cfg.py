@@ -13,7 +13,7 @@ class BasePPORunnerCfg(RslRlOnPolicyRunnerCfg):
     max_iterations = 5000
     save_interval = 100
     experiment_name = ""  # same as task name
-    empirical_normalization = False
+    empirical_normalization = True
     obs_groups = {"actor": ["policy"], "critic": ["policy"]}
     actor = RslRlMLPModelCfg(
         class_name="MLPModel",
@@ -35,7 +35,7 @@ class BasePPORunnerCfg(RslRlOnPolicyRunnerCfg):
         entropy_coef=0.01,
         num_learning_epochs=5,
         num_mini_batches=4,
-        learning_rate=1.0e-3,
+        learning_rate=3.0e-4,
         schedule="adaptive",
         gamma=0.99,
         lam=0.95,

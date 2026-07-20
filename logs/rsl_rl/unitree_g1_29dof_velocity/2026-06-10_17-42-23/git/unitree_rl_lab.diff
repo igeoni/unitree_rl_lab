@@ -1,0 +1,357 @@
+--- git commit ---
+001f490a2758e73711c0f81a68837a67850c60a8
+
+
+--- git status ---
+On branch develop
+Changes not staged for commit:
+  (use "git add <file>..." to update what will be committed)
+  (use "git restore <file>..." to discard changes in working directory)
+	modified:   deploy/robots/g1_29dof/CMakeLists.txt
+	modified:   scripts/rsl_rl/play.py
+	modified:   source/unitree_rl_lab/unitree_rl_lab/assets/robots/unitree.py
+	modified:   source/unitree_rl_lab/unitree_rl_lab/tasks/locomotion/agents/rsl_rl_ppo_cfg.py
+	modified:   source/unitree_rl_lab/unitree_rl_lab/tasks/locomotion/robots/g1/29dof/velocity_env_cfg.py
+
+Untracked files:
+  (use "git add <file>..." to include in what will be committed)
+	logs/rsl_rl/unitree_g1_29dof_velocity/2026-05-15_11-27-27/exported/
+	logs/rsl_rl/unitree_g1_29dof_velocity/2026-05-27_15-08-02/
+	logs/rsl_rl/unitree_g1_29dof_velocity/2026-05-28_11-09-15/
+	logs/rsl_rl/unitree_g1_29dof_velocity/2026-05-28_13-36-45/
+	logs/rsl_rl/unitree_g1_29dof_velocity/2026-05-29_13-34-57/
+	logs/rsl_rl/unitree_g1_29dof_velocity/2026-05-29_13-36-17/
+	logs/rsl_rl/unitree_g1_29dof_velocity/2026-06-10_17-40-37/
+	logs/rsl_rl/unitree_g1_29dof_velocity/2026-06-10_17-42-23/
+	scripts/export_onnx.py
+
+no changes added to commit (use "git add" and/or "git commit -a") 
+
+
+--- git diff ---
+diff --git a/deploy/robots/g1_29dof/CMakeLists.txt b/deploy/robots/g1_29dof/CMakeLists.txt
+index 0e29419..e1b750f 100644
+--- a/deploy/robots/g1_29dof/CMakeLists.txt
++++ b/deploy/robots/g1_29dof/CMakeLists.txt
+@@ -8,14 +8,17 @@ find_package(yaml-cpp REQUIRED)
+ 
+ include_directories(
+   /usr/include/eigen3
+-  /usr/local/include/ddscxx # dds
+-  /usr/local/include/iceoryx/v2.0.2 # dds
++  #/usr/local/include/ddscxx # dds
++  #/usr/local/include/iceoryx/v2.0.2 # dds
++  /opt/unitree_robotics/include/ddscxx
++  /opt/unitree_robotics/include
+   include
+   ${PROJECT_SOURCE_DIR}/../../thirdparty/onnxruntime-linux-x64-1.22.0/include
+   ${PROJECT_SOURCE_DIR}/../../include/
+ )
+ 
+ link_libraries(
++  -L/opt/unitree_robotics/lib
+   unitree_sdk2 ddsc ddscxx rt pthread # dds
+   libboost_program_options.a libyaml-cpp.a fmt
+   ${PROJECT_SOURCE_DIR}/../../thirdparty/onnxruntime-linux-x64-1.22.0/lib/libonnxruntime.so.1.22.0
+@@ -28,4 +31,4 @@ file(GLOB_RECURSE ADD_SRC_LIST
+ add_library(${PROJECT_NAME}_lib ${ADD_SRC_LIST})
+ link_libraries(${PROJECT_NAME}_lib)
+ 
+-add_executable(g1_ctrl main.cpp)
+\ No newline at end of file
++add_executable(g1_ctrl main.cpp)
+diff --git a/scripts/rsl_rl/play.py b/scripts/rsl_rl/play.py
+index 583ee41..70d41f9 100644
+--- a/scripts/rsl_rl/play.py
++++ b/scripts/rsl_rl/play.py
+@@ -31,6 +31,29 @@ parser.add_argument(
+     help="Use the pre-trained checkpoint from Nucleus.",
+ )
+ parser.add_argument("--real-time", action="store_true", default=False, help="Run in real-time, if possible.")
++parser.add_argument(
++    "--scene",
++    type=str,
++    default=None,
++    choices=["warehouse", "warehouse_multiple_shelves", "full_warehouse"],
++    help="Replace terrain with a Nucleus warehouse USD scene.",
++)
++parser.add_argument(
++    "--spawn-pos",
++    type=float,
++    nargs=3,
++    default=None,
++    metavar=("X", "Y", "Z"),
++    help="Override robot spawn position (e.g. --spawn-pos 2.0 0.0 1.05).",
++)
++parser.add_argument(
++    "--fixed_vel",
++    type=float,
++    nargs=3,
++    default=None,
++    metavar=("VX", "VY", "WZ"),
++    help="Override velocity command with fixed values every step (e.g. --fixed_vel 0.0 0.0 1.0).",
++)
+ # append RSL-RL cli arguments
+ cli_args.add_rsl_rl_args(parser)
+ # append AppLauncher cli args
+@@ -69,6 +92,53 @@ import unitree_rl_lab.tasks  # noqa: F401
+ from unitree_rl_lab.utils.parser_cfg import parse_env_cfg
+ 
+ 
++def _setup_keyboard_teleop(device: str, num_envs: int):
++    """Set up carb keyboard teleop (polling-based). Returns teleop state dict or None if unavailable."""
++    try:
++        import carb
++        import omni.appwindow
++
++        _input = carb.input.acquire_input_interface()
++        _keyboard = omni.appwindow.get_default_app_window().get_keyboard()
++
++        VX, VY, WZ = 0.7, 0.3, 0.2
++        key_map = [
++            (carb.input.KeyboardInput.W, torch.tensor([VX, 0.0, 0.0])),
++            (carb.input.KeyboardInput.S, torch.tensor([-VX, 0.0, 0.0])),
++            (carb.input.KeyboardInput.A, torch.tensor([0.0, VY, 0.0])),
++            (carb.input.KeyboardInput.D, torch.tensor([0.0, -VY, 0.0])),
++            (carb.input.KeyboardInput.Q, torch.tensor([0.0, 0.0, WZ])),
++            (carb.input.KeyboardInput.E, torch.tensor([0.0, 0.0, -WZ])),
++        ]
++        vel = torch.zeros(num_envs, 3, device=device)
++
++        print("[INFO] Keyboard teleop active: W/S=forward/back, A/D=left/right, Q/E=rotate. Focus the Isaac Sim window.")
++        return {"vel": vel, "_input": _input, "_keyboard": _keyboard, "key_map": key_map, "device": device}
++    except Exception as e:
++        print(f"[WARNING] Keyboard teleop unavailable: {e}")
++        return None
++
++
++def _apply_teleop_command(env, teleop: dict):
++    """Poll keyboard state, update velocity command, and override env command."""
++    try:
++        _input = teleop["_input"]
++        _keyboard = teleop["_keyboard"]
++        vel = teleop["vel"]
++        device = teleop["device"]
++
++        new_vel = torch.zeros(3)
++        for key, delta in teleop["key_map"]:
++            if _input.get_keyboard_value(_keyboard, key):
++                new_vel += delta
++        vel[:] = new_vel.to(device)
++
++        cmd_term = env.unwrapped.command_manager._terms["base_velocity"]
++        cmd_term.vel_command_b[:] = vel
++    except Exception:
++        pass
++
++
+ def main():
+     """Play with RSL-RL agent."""
+     # parse configuration
+@@ -79,6 +149,29 @@ def main():
+         use_fabric=not args_cli.disable_fabric,
+         entry_point_key="play_env_cfg_entry_point",
+     )
++
++    if args_cli.scene is not None:
++        from isaaclab.terrains import TerrainImporterCfg
++        from isaaclab.utils.assets import ISAAC_NUCLEUS_DIR
++        _scene_map = {
++            "warehouse": "warehouse.usd",
++            "warehouse_multiple_shelves": "warehouse_multiple_shelves.usd",
++            "full_warehouse": "full_warehouse.usd",
++        }
++        env_cfg.scene.terrain = TerrainImporterCfg(
++            prim_path="/World/ground",
++            terrain_type="usd",
++            usd_path=f"{ISAAC_NUCLEUS_DIR}/Environments/Simple_Warehouse/{_scene_map[args_cli.scene]}",
++            collision_group=-1,
++        )
++        if hasattr(env_cfg, "curriculum") and env_cfg.curriculum is not None:
++            if hasattr(env_cfg.curriculum, "terrain_levels"):
++                env_cfg.curriculum.terrain_levels = None
++
++    if args_cli.spawn_pos is not None:
++        x, y, z = args_cli.spawn_pos
++        env_cfg.scene.robot.init_state.pos = (x, y, z)
++
+     agent_cfg: RslRlOnPolicyRunnerCfg = cli_args.parse_rsl_rl_cfg(args_cli.task, args_cli)
+ 
+     # specify directory for logging experiments
+@@ -187,11 +280,20 @@ def main():
+ 
+     dt = env.unwrapped.step_dt
+ 
++    # keyboard teleop setup
++    teleop = _setup_keyboard_teleop(env.unwrapped.device, env.num_envs)
++
+     # reset environment
+     obs = env.get_observations()
+     if version("rsl-rl-lib").startswith("2.3."):
+         obs, _ = env.get_observations()
+     timestep = 0
++    # fixed velocity command override
++    fixed_vel = None
++    if args_cli.fixed_vel is not None:
++        fixed_vel = torch.tensor(args_cli.fixed_vel, device=env.unwrapped.device).unsqueeze(0).expand(env.num_envs, -1)
++        print(f"[INFO] Fixed velocity command: vx={args_cli.fixed_vel[0]}, vy={args_cli.fixed_vel[1]}, wz={args_cli.fixed_vel[2]}")
++
+     # simulate environment
+     while simulation_app.is_running():
+         start_time = time.time()
+@@ -202,6 +304,13 @@ def main():
+             # env stepping
+             obs, _, _, _ = env.step(actions)
+ 
++        # override velocity commands with fixed value or keyboard input
++        if fixed_vel is not None:
++            cmd_term = env.unwrapped.command_manager._terms["base_velocity"]
++            cmd_term.vel_command_b[:] = fixed_vel
++        elif teleop is not None:
++            _apply_teleop_command(env, teleop)
++
+         if contact_pub is not None:
+             contact_pub.update()
+         if joint_pub is not None:
+diff --git a/source/unitree_rl_lab/unitree_rl_lab/assets/robots/unitree.py b/source/unitree_rl_lab/unitree_rl_lab/assets/robots/unitree.py
+index 95eb925..b9feec1 100644
+--- a/source/unitree_rl_lab/unitree_rl_lab/assets/robots/unitree.py
++++ b/source/unitree_rl_lab/unitree_rl_lab/assets/robots/unitree.py
+@@ -298,12 +298,12 @@ UNITREE_H1_CFG = UnitreeArticulationCfg(
+ )
+ 
+ UNITREE_G1_23DOF_CFG = UnitreeArticulationCfg(
+-    spawn=UnitreeUrdfFileCfg(
+-        asset_path=f"{UNITREE_ROS_DIR}/g1_29dof_rev_1_0.urdf",
+-    ),
+-    # spawn=UnitreeUsdFileCfg(
+-    #     usd_path=f"{UNITREE_MODEL_DIR}/G1/23dof/usd/g1_23dof_rev_1_0/g1_23dof_rev_1_0.usd",
++    # spawn=UnitreeUrdfFileCfg(
++    #     asset_path=f"{UNITREE_ROS_DIR}/g1_29dof_rev_1_0.urdf",
+     # ),
++    spawn=UnitreeUsdFileCfg(
++        usd_path=f"{UNITREE_MODEL_DIR}/G1/23dof/usd/g1_23dof_rev_1_0/g1_23dof_rev_1_0.usd",
++    ),
+     init_state=ArticulationCfg.InitialStateCfg(
+         pos=(0.0, 0.0, 0.8),
+         joint_pos={
+@@ -397,12 +397,12 @@ UNITREE_G1_23DOF_CFG = UnitreeArticulationCfg(
+ )
+ 
+ UNITREE_G1_29DOF_CFG = UnitreeArticulationCfg(
+-    # spawn=UnitreeUrdfFileCfg(
+-    #     asset_path=f"{UNITREE_ROS_DIR}/g1_29dof_rev_1_0.urdf",
+-    # ),
+-    spawn=UnitreeUsdFileCfg(
+-        usd_path=f"{UNITREE_ASSET_DIR}/g1_29dof_rev_1_0.usd",
++    spawn=UnitreeUrdfFileCfg(
++        asset_path=f"{UNITREE_ROS_DIR}/g1_29dof_rev_1_0.urdf",
+     ),
++    # spawn=UnitreeUsdFileCfg(
++    #     usd_path=f"{UNITREE_ASSET_DIR}/g1_29dof_rev_1_0.usd",
++    # ),
+     init_state=ArticulationCfg.InitialStateCfg(
+         pos=(0.0, 0.0, 0.8),
+         joint_pos={
+diff --git a/source/unitree_rl_lab/unitree_rl_lab/tasks/locomotion/agents/rsl_rl_ppo_cfg.py b/source/unitree_rl_lab/unitree_rl_lab/tasks/locomotion/agents/rsl_rl_ppo_cfg.py
+index 16f6729..da00ca3 100644
+--- a/source/unitree_rl_lab/unitree_rl_lab/tasks/locomotion/agents/rsl_rl_ppo_cfg.py
++++ b/source/unitree_rl_lab/unitree_rl_lab/tasks/locomotion/agents/rsl_rl_ppo_cfg.py
+@@ -13,7 +13,7 @@ class BasePPORunnerCfg(RslRlOnPolicyRunnerCfg):
+     max_iterations = 5000
+     save_interval = 100
+     experiment_name = ""  # same as task name
+-    empirical_normalization = False
++    empirical_normalization = True
+     obs_groups = {"actor": ["policy"], "critic": ["policy"]}
+     actor = RslRlMLPModelCfg(
+         class_name="MLPModel",
+@@ -35,7 +35,7 @@ class BasePPORunnerCfg(RslRlOnPolicyRunnerCfg):
+         entropy_coef=0.01,
+         num_learning_epochs=5,
+         num_mini_batches=4,
+-        learning_rate=1.0e-3,
++        learning_rate=3.0e-4,
+         schedule="adaptive",
+         gamma=0.99,
+         lam=0.95,
+diff --git a/source/unitree_rl_lab/unitree_rl_lab/tasks/locomotion/robots/g1/29dof/velocity_env_cfg.py b/source/unitree_rl_lab/unitree_rl_lab/tasks/locomotion/robots/g1/29dof/velocity_env_cfg.py
+index df3e82c..d2b4d73 100644
+--- a/source/unitree_rl_lab/unitree_rl_lab/tasks/locomotion/robots/g1/29dof/velocity_env_cfg.py
++++ b/source/unitree_rl_lab/unitree_rl_lab/tasks/locomotion/robots/g1/29dof/velocity_env_cfg.py
+@@ -122,21 +122,21 @@ class EventCfg:
+         },
+     )
+ 
+-    # reset_base = EventTerm(
+-    #     func=mdp.reset_root_state_uniform,
+-    #     mode="reset",
+-    #     params={
+-    #         "pose_range": {"x": (-0.5, 0.5), "y": (-0.5, 0.5), "yaw": (-3.14, 3.14)},
+-    #         "velocity_range": {
+-    #             "x": (0.0, 0.0),
+-    #             "y": (0.0, 0.0),
+-    #             "z": (0.0, 0.0),
+-    #             "roll": (0.0, 0.0),
+-    #             "pitch": (0.0, 0.0),
+-    #             "yaw": (0.0, 0.0),
+-    #         },
+-    #     },
+-    # )
++    reset_base = EventTerm(
++        func=mdp.reset_root_state_uniform,
++        mode="reset",
++        params={
++            "pose_range": {"x": (-0.5, 0.5), "y": (-0.5, 0.5), "yaw": (-3.14, 3.14)},
++            "velocity_range": {
++                "x": (0.0, 0.0),
++                "y": (0.0, 0.0),
++                "z": (0.0, 0.0),
++                "roll": (0.0, 0.0),
++                "pitch": (0.0, 0.0),
++                "yaw": (0.0, 0.0),
++            },
++        },
++    )
+ 
+     reset_robot_joints = EventTerm(
+         func=mdp.reset_joints_by_scale,
+@@ -168,10 +168,10 @@ class CommandsCfg:
+         heading_command=False,
+         debug_vis=True,
+         ranges=mdp.UniformLevelVelocityCommandCfg.Ranges(
+-            lin_vel_x=(0.0, 0.1), lin_vel_y=(-0.1, 0.1), ang_vel_z=(-0.1, 0.1)
++            lin_vel_x=(-0.1, 0.1), lin_vel_y=(-0.1, 0.1), ang_vel_z=(-0.5, 0.5)
+         ),
+         limit_ranges=mdp.UniformLevelVelocityCommandCfg.Ranges(
+-            lin_vel_x=(0.0, 1.0), lin_vel_y=(-0.3, 0.3), ang_vel_z=(-0.2, 0.2)
++            lin_vel_x=(-0.5, 1.0), lin_vel_y=(-0.3, 0.3), ang_vel_z=(-1.0, 1.0)
+         ),
+     )
+ 
+@@ -245,7 +245,7 @@ class RewardsCfg:
+         params={"command_name": "base_velocity", "std": math.sqrt(0.25)},
+     )
+     track_ang_vel_z = RewTerm(
+-        func=mdp.track_ang_vel_z_exp, weight=0.5, params={"command_name": "base_velocity", "std": math.sqrt(0.25)}
++        func=mdp.track_ang_vel_z_exp, weight=1.0, params={"command_name": "base_velocity", "std": math.sqrt(0.25)}
+     )
+ 
+     alive = RewTerm(func=mdp.is_alive, weight=0.15)
+@@ -288,7 +288,9 @@ class RewardsCfg:
+     joint_deviation_legs = RewTerm(
+         func=mdp.joint_deviation_l1,
+         weight=-1.0,
++        # params={"asset_cfg": SceneEntityCfg("robot", joint_names=[".*_hip_roll_joint", ".*_hip_yaw_joint"])},
+         params={"asset_cfg": SceneEntityCfg("robot", joint_names=[".*_hip_roll_joint", ".*_hip_yaw_joint"])},
++        
+     )
+ 
+     # -- robot
+@@ -403,4 +405,4 @@ class RobotPlayEnvCfg(RobotEnvCfg):
+         self.scene.num_envs = 32
+         self.scene.terrain.terrain_generator.num_rows = 2
+         self.scene.terrain.terrain_generator.num_cols = 10
+-        self.commands.base_velocity.ranges = self.commands.base_velocity.limit_ranges
++        self.commands.base_velocity.ranges = self.commands.base_velocity.limit_ranges
+\ No newline at end of file

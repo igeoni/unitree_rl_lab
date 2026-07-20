@@ -31,6 +31,29 @@ parser.add_argument(
     help="Use the pre-trained checkpoint from Nucleus.",
 )
 parser.add_argument("--real-time", action="store_true", default=False, help="Run in real-time, if possible.")
+parser.add_argument(
+    "--scene",
+    type=str,
+    default=None,
+    choices=["warehouse", "warehouse_multiple_shelves", "full_warehouse"],
+    help="Replace terrain with a Nucleus warehouse USD scene.",
+)
+parser.add_argument(
+    "--spawn-pos",
+    type=float,
+    nargs=3,
+    default=None,
+    metavar=("X", "Y", "Z"),
+    help="Override robot spawn position (e.g. --spawn-pos 2.0 0.0 1.05).",
+)
+parser.add_argument(
+    "--fixed_vel",
+    type=float,
+    nargs=3,
+    default=None,
+    metavar=("VX", "VY", "WZ"),
+    help="Override velocity command with fixed values every step (e.g. --fixed_vel 0.0 0.0 1.0).",
+)
 # append RSL-RL cli arguments
 cli_args.add_rsl_rl_args(parser)
 # append AppLauncher cli args
@@ -69,6 +92,53 @@ import unitree_rl_lab.tasks  # noqa: F401
 from unitree_rl_lab.utils.parser_cfg import parse_env_cfg
 
 
+def _setup_keyboard_teleop(device: str, num_envs: int):
+    """Set up carb keyboard teleop (polling-based). Returns teleop state dict or None if unavailable."""
+    try:
+        import carb
+        import omni.appwindow
+
+        _input = carb.input.acquire_input_interface()
+        _keyboard = omni.appwindow.get_default_app_window().get_keyboard()
+
+        VX, VY, WZ = 1.0, 0.5, 0.6
+        key_map = [
+            (carb.input.KeyboardInput.W, torch.tensor([VX, 0.0, 0.0])),
+            (carb.input.KeyboardInput.S, torch.tensor([-VX, 0.0, 0.0])),
+            (carb.input.KeyboardInput.A, torch.tensor([0.0, VY, 0.0])),
+            (carb.input.KeyboardInput.D, torch.tensor([0.0, -VY, 0.0])),
+            (carb.input.KeyboardInput.Z, torch.tensor([0.0, 0.0, WZ])),
+            (carb.input.KeyboardInput.C, torch.tensor([0.0, 0.0, -WZ])),
+        ]
+        vel = torch.zeros(num_envs, 3, device=device)
+
+        print("[INFO] Keyboard teleop active: W/S=forward/back, A/D=left/right, Q/E=rotate. Focus the Isaac Sim window.")
+        return {"vel": vel, "_input": _input, "_keyboard": _keyboard, "key_map": key_map, "device": device}
+    except Exception as e:
+        print(f"[WARNING] Keyboard teleop unavailable: {e}")
+        return None
+
+
+def _apply_teleop_command(env, teleop: dict):
+    """Poll keyboard state, update velocity command, and override env command."""
+    try:
+        _input = teleop["_input"]
+        _keyboard = teleop["_keyboard"]
+        vel = teleop["vel"]
+        device = teleop["device"]
+
+        new_vel = torch.zeros(3)
+        for key, delta in teleop["key_map"]:
+            if _input.get_keyboard_value(_keyboard, key):
+                new_vel += delta
+        vel[:] = new_vel.to(device)
+
+        cmd_term = env.unwrapped.command_manager._terms["base_velocity"]
+        cmd_term.vel_command_b[:] = vel
+    except Exception:
+        pass
+
+
 def main():
     """Play with RSL-RL agent."""
     # parse configuration
@@ -79,6 +149,29 @@ def main():
         use_fabric=not args_cli.disable_fabric,
         entry_point_key="play_env_cfg_entry_point",
     )
+
+    if args_cli.scene is not None:
+        from isaaclab.terrains import TerrainImporterCfg
+        from isaaclab.utils.assets import ISAAC_NUCLEUS_DIR
+        _scene_map = {
+            "warehouse": "warehouse.usd",
+            "warehouse_multiple_shelves": "warehouse_multiple_shelves.usd",
+            "full_warehouse": "full_warehouse.usd",
+        }
+        env_cfg.scene.terrain = TerrainImporterCfg(
+            prim_path="/World/ground",
+            terrain_type="usd",
+            usd_path=f"{ISAAC_NUCLEUS_DIR}/Environments/Simple_Warehouse/{_scene_map[args_cli.scene]}",
+            collision_group=-1,
+        )
+        if hasattr(env_cfg, "curriculum") and env_cfg.curriculum is not None:
+            if hasattr(env_cfg.curriculum, "terrain_levels"):
+                env_cfg.curriculum.terrain_levels = None
+
+    if args_cli.spawn_pos is not None:
+        x, y, z = args_cli.spawn_pos
+        env_cfg.scene.robot.init_state.pos = (x, y, z)
+
     agent_cfg: RslRlOnPolicyRunnerCfg = cli_args.parse_rsl_rl_cfg(args_cli.task, args_cli)
 
     # specify directory for logging experiments
@@ -187,11 +280,20 @@ def main():
 
     dt = env.unwrapped.step_dt
 
+    # keyboard teleop setup
+    teleop = _setup_keyboard_teleop(env.unwrapped.device, env.num_envs)
+
     # reset environment
     obs = env.get_observations()
     if version("rsl-rl-lib").startswith("2.3."):
         obs, _ = env.get_observations()
     timestep = 0
+    # fixed velocity command override
+    fixed_vel = None
+    if args_cli.fixed_vel is not None:
+        fixed_vel = torch.tensor(args_cli.fixed_vel, device=env.unwrapped.device).unsqueeze(0).expand(env.num_envs, -1)
+        print(f"[INFO] Fixed velocity command: vx={args_cli.fixed_vel[0]}, vy={args_cli.fixed_vel[1]}, wz={args_cli.fixed_vel[2]}")
+
     # simulate environment
     while simulation_app.is_running():
         start_time = time.time()
@@ -201,6 +303,13 @@ def main():
             actions = policy(obs)
             # env stepping
             obs, _, _, _ = env.step(actions)
+
+        # override velocity commands with fixed value or keyboard input
+        if fixed_vel is not None:
+            cmd_term = env.unwrapped.command_manager._terms["base_velocity"]
+            cmd_term.vel_command_b[:] = fixed_vel
+        elif teleop is not None:
+            _apply_teleop_command(env, teleop)
 
         if contact_pub is not None:
             contact_pub.update()

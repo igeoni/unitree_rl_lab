@@ -122,21 +122,21 @@ class EventCfg:
         },
     )
 
-    reset_base = EventTerm(
-        func=mdp.reset_root_state_uniform,
-        mode="reset",
-        params={
-            "pose_range": {"x": (-0.5, 0.5), "y": (-0.5, 0.5), "yaw": (-3.14, 3.14)},
-            "velocity_range": {
-                "x": (0.0, 0.0),
-                "y": (0.0, 0.0),
-                "z": (0.0, 0.0),
-                "roll": (0.0, 0.0),
-                "pitch": (0.0, 0.0),
-                "yaw": (0.0, 0.0),
-            },
-        },
-    )
+    # reset_base = EventTerm(
+    #     func=mdp.reset_root_state_uniform,
+    #     mode="reset",
+    #     params={
+    #         "pose_range": {"x": (-0.5, 0.5), "y": (-0.5, 0.5), "yaw": (-3.14, 3.14)},
+    #         "velocity_range": {
+    #             "x": (0.0, 0.0),
+    #             "y": (0.0, 0.0),
+    #             "z": (0.0, 0.0),
+    #             "roll": (0.0, 0.0),
+    #             "pitch": (0.0, 0.0),
+    #             "yaw": (0.0, 0.0),
+    #         },
+    #     },
+    # )
 
     reset_robot_joints = EventTerm(
         func=mdp.reset_joints_by_scale,
@@ -168,10 +168,10 @@ class CommandsCfg:
         heading_command=False,
         debug_vis=True,
         ranges=mdp.UniformLevelVelocityCommandCfg.Ranges(
-            lin_vel_x=(-0.1, 0.1), lin_vel_y=(-0.1, 0.1), ang_vel_z=(-0.5, 0.5)
+            lin_vel_x=(0.0, 0.3), lin_vel_y=(-0.2, 0.2), ang_vel_z=(-0.5, 0.5)
         ),
         limit_ranges=mdp.UniformLevelVelocityCommandCfg.Ranges(
-            lin_vel_x=(-0.5, 1.0), lin_vel_y=(-0.3, 0.3), ang_vel_z=(-1.0, 1.0)
+            lin_vel_x=(0.0, 1.5), lin_vel_y=(-0.5, 0.5), ang_vel_z=(-2.0, 2.0)
         ),
     )
 
@@ -288,9 +288,12 @@ class RewardsCfg:
     joint_deviation_legs = RewTerm(
         func=mdp.joint_deviation_l1,
         weight=-1.0,
-        # params={"asset_cfg": SceneEntityCfg("robot", joint_names=[".*_hip_roll_joint", ".*_hip_yaw_joint"])},
-        params={"asset_cfg": SceneEntityCfg("robot", joint_names=[".*_hip_roll_joint", ".*_hip_yaw_joint"])},
-        
+        params={"asset_cfg": SceneEntityCfg("robot", joint_names=[".*_hip_roll_joint"])},
+    )
+    joint_deviation_hip_yaw = RewTerm(
+        func=mdp.joint_deviation_l1,
+        weight=-0.2,
+        params={"asset_cfg": SceneEntityCfg("robot", joint_names=[".*_hip_yaw_joint"])},
     )
 
     # -- robot
@@ -354,6 +357,7 @@ class CurriculumCfg:
 
     terrain_levels = CurrTerm(func=mdp.terrain_levels_vel)
     lin_vel_cmd_levels = CurrTerm(mdp.lin_vel_cmd_levels)
+    ang_vel_cmd_levels = CurrTerm(mdp.ang_vel_cmd_levels)
 
 
 @configclass
@@ -406,9 +410,6 @@ class RobotPlayEnvCfg(RobotEnvCfg):
         self.scene.terrain.terrain_generator.num_rows = 2
         self.scene.terrain.terrain_generator.num_cols = 10
         self.commands.base_velocity.ranges = self.commands.base_velocity.limit_ranges
-        # disable push and terminations for stable play
-        self.events.push_robot = None
-        self.events.base_external_force_torque = None
-        self.terminations.time_out = None
-        self.terminations.base_height = None
-        self.terminations.bad_orientation = None
+        # disable auto-resampling; teleop will override vel_command_b each step
+        self.commands.base_velocity.resampling_time_range = (1e9, 1e9)
+        self.commands.base_velocity.rel_standing_envs = 0.0
