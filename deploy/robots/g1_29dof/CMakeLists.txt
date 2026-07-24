@@ -8,7 +8,8 @@ find_package(yaml-cpp REQUIRED)
 
 include_directories(
   /usr/include/eigen3
-  #/usr/local/include/ddscxx # dds
+  /usr/local/include/ddscxx # dds
+  /usr/local/include
   #/usr/local/include/iceoryx/v2.0.2 # dds
   /opt/unitree_robotics/include/ddscxx
   /opt/unitree_robotics/include
